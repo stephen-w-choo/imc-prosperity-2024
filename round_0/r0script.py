@@ -17,7 +17,7 @@ POSITION_LIMITS = {
 PRICE_AGGRESSION = 0 # determines how aggressively we hunt for values above and below the spread
 
 THRESHOLDS = {
-	"over": -5,
+	"over": 0,
 	"mid": 10
 }
 
@@ -109,6 +109,22 @@ class Trader:
 
 		# start market making with remaining quota
 		# if selling_pos
+		if -product_position_limit - selling_pos < 0:
+			if selling_pos > -THRESHOLDS["over"]:
+				target_sell_price = max(acceptable_price, lowest_sell_price - 1)
+				vol = -selling_pos - THRESHOLDS["over"]
+				orders.append(Order(product, target_sell_price, vol))
+				selling_pos += vol
+			if -THRESHOLDS["over"] >= selling_pos >= -THRESHOLDS["mid"]:
+				target_sell_price = max(acceptable_price + 1, lowest_sell_price - 1)
+				vol = -selling_pos - THRESHOLDS["mid"]
+				orders.append(Order(product, target_sell_price, vol))
+				selling_pos += vol
+			if -THRESHOLDS["mid"] >= selling_pos:
+				target_sell_price = max(acceptable_price + 2, lowest_sell_price - 1)
+				vol = -product_position_limit - selling_pos
+				orders.append(Order(product, target_sell_price, vol))
+				selling_pos += vol
 				
 		return orders
 	
