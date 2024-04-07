@@ -14,6 +14,7 @@ POSITION_LIMITS = {
 	"PRODUCT2": 20
 }
 
+PRICE_AGGRESSION = 1 # determines how aggressively we hunt for values above and below the spread
 
 class Trader:
 	def get_orders(self, state: TradingState, acceptable_price: int, product: str) -> List[Order]:
@@ -32,14 +33,13 @@ class Trader:
 		# we start with buying - using our current position to determine how much and how aggressively we buy from the market
 
 		buying_pos = state.position.get(product, 0)
-		print(f"Acceptable price for {product}: {acceptable_price}")
 
 		for ask, vol in orders_sell:
 			# skip if there is no quota left
 			if product_position_limit - buying_pos <= 0:
 				break
 
-			if ask < acceptable_price:
+			if ask < acceptable_price - PRICE_AGGRESSION:
 				# we want to buy
 				buy_amount = min(-vol, product_position_limit - buying_pos)
 				buying_pos += buy_amount
@@ -68,7 +68,7 @@ class Trader:
 			if -product_position_limit - selling_pos >= 0:
 				break
 
-			if bid > acceptable_price:
+			if bid > acceptable_price + PRICE_AGGRESSION:
 				sell_amount = max(-vol, -product_position_limit - selling_pos)
 				selling_pos += sell_amount
 				assert(sell_amount < 0)
