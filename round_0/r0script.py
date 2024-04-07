@@ -9,8 +9,8 @@ import collections
 POSITION_LIMIT = 20
 
 POSITION_LIMITS = {
-	"AMETHYSTS": 20,
-	"STARFRUIT": 20,
+	"AMETHYSTS": 19,
+	"STARFRUIT": 19,
 	"PRODUCT1": 10,
 	"PRODUCT2": 20
 }
@@ -51,7 +51,12 @@ class Trader:
 			return None
 
 		# calculate the average of the last four prices
-		expected_price = STARFRUIT_COEFFICIENTS[0] + sum([STARFRUIT_COEFFICIENTS[i] * self.previous_starfruit_prices[i] for i in range(4)])
+
+		print(STARFRUIT_COEFFICIENTS)
+		print(self.previous_starfruit_prices)
+		print(sum([STARFRUIT_COEFFICIENTS[i] * self.previous_starfruit_prices[i] for i in range(4)]))
+
+		expected_price = STARFRUIT_COEFFICIENTS[0] + sum([STARFRUIT_COEFFICIENTS[i + 1] * self.previous_starfruit_prices[i] for i in range(4)])
 
 		return expected_price
 
@@ -134,6 +139,7 @@ class Trader:
 				selling_pos += sell_amount
 				assert(sell_amount < 0)
 				orders.append(Order(product, bid, sell_amount))
+				print("Sell order 1: ", sell_amount, bid)
 		
 			# if at parity, sell up until we are no longer leveraged
 			if bid == acceptable_sell_price and selling_pos > 0:
@@ -141,6 +147,7 @@ class Trader:
 				selling_pos += sell_amount
 				assert(sell_amount < 0)
 				orders.append(Order(product, bid, sell_amount))
+				print("Sell order 2: ", sell_amount, bid)
 
 		# start market making with remaining quota
 		# if selling_pos
@@ -150,16 +157,19 @@ class Trader:
 				vol = -selling_pos - THRESHOLDS["over"]
 				orders.append(Order(product, target_sell_price, vol))
 				selling_pos += vol
+				print(f"Sell order 3: selling {vol} at {target_sell_price}")
 			if -THRESHOLDS["over"] >= selling_pos >= -THRESHOLDS["mid"]:
 				target_sell_price = max(acceptable_sell_price + 1, lowest_sell_price - 1)
 				vol = -selling_pos - THRESHOLDS["mid"]
 				orders.append(Order(product, target_sell_price, vol))
 				selling_pos += vol
+				print(f"Sell order 4: selling {vol} at {target_sell_price}")
 			if -THRESHOLDS["mid"] >= selling_pos:
 				target_sell_price = max(acceptable_sell_price + 2, lowest_sell_price - 1)
 				vol = -product_position_limit - selling_pos
 				orders.append(Order(product, target_sell_price, vol))
 				selling_pos += vol
+				print(f"Sell order 5: selling {vol} at {target_sell_price}")
 				
 		return orders
 	
@@ -185,6 +195,7 @@ class Trader:
 			if product_acceptable_price is None:
 				continue
 			else:
+				print(f"Getting orders for {product} at {product_acceptable_price}")
 				orders = self.get_orders(state, product_acceptable_price, product)
 				result[product] = orders
 	
