@@ -14,7 +14,7 @@ POSITION_LIMITS = {
 	"PRODUCT2": 20
 }
 
-PRICE_AGGRESSION = 1 # determines how aggressively we hunt for values above and below the spread
+PRICE_AGGRESSION = 0 # determines how aggressively we hunt for values above and below the spread
 
 class Trader:
 	def get_orders(self, state: TradingState, acceptable_price: int, product: str) -> List[Order]:
@@ -44,18 +44,33 @@ class Trader:
 				buy_amount = min(-vol, product_position_limit - buying_pos)
 				buying_pos += buy_amount
 				assert(buy_amount > 0)
-				orders.append(Order(product, ask, buy_amount))
+				orders.append(Order(product, ask, -buy_amount))
 
 			# if at parity, buy up until we are no longer leveraged
 			if ask == acceptable_price and buying_pos < 0:
 				buy_amount = min(-vol, -buying_pos)
 				buying_pos += buy_amount
 				assert(buy_amount > 0)
-				orders.append(Order(product, ask, buy_amount))
+				orders.append(Order(product, ask, -buy_amount))
 
+		# once we exhaust all profitable sell orders, we place additional buy orders
+		# at a price acceptable to us
+		# what that price looks like will depend on our position
+		target_buy_price = min(acceptable_price - 1, lowest_buy_price + 1)
 
+		print(f"Target buy price for market making: {target_buy_price}")
 		
-		# TODO - add in market making logic to make our own buy orders if we are not buying enough
+		if product_position_limit - buying_pos > 0: # if we have capacity
+			if buying_pos < -5: # if we are overleveraged to sell, buy at parity for price up to neutral position
+				vol = -buying_pos
+				orders.append(Order(product, target_buy_price, vol))
+				print(f"Market making: buying {vol} at {target_buy_price}")
+				buying_pos += vol
+			if -5 <= buying_pos <= 5:
+				vol = -buying_pos + 5 # if we are close to neutral
+				orders.append(Order(product, target_buy_price - 1, vol))
+				print(f"Market making: buying {vol} at {target_buy_price}")
+				buying_pos += vol
 				
 		# now we sell - we reset our position
 		selling_pos = state.position.get(product, 0)
@@ -82,7 +97,7 @@ class Trader:
 				assert(sell_amount < 0)
 				orders.append(Order(product, bid, sell_amount))
 
-		# TODO - add in market making logic to make our own sell orders to undercut
+		# target_sell_price = max(acceptable_price)
 				
 		return orders
 	
