@@ -2,9 +2,8 @@
 Manual trading notes.
 
 We have a linearly distributed profit margin, where at 100 units of profit no one
-will sell the product that allows us to profit
-
-And at 0 units of profit everyone will sell the product that allows us to profit.
+will sell the product that allows us to profit, and at 0 units of profit everyone 
+will sell the product that allows us to profit.
 
 We are allowed to buy twice - once at an initial price, once at a resrved price.
 
@@ -14,10 +13,12 @@ at the first price. Then we run brute force again from the remaining units to 99
 
 It'll be n^2, but given that n = 100, it's not a big deal.
 
-I've drawn it out on paper - I THINK we expect it to reach a max at 933 and 966, but I'm not sure
+Having said that, I think this can be written out as a solvable maths equation without brute
+force. I'm not sure how to write it out, but I think it's possible.
+
+I've drawn it out on paper - just eyeballing the graph, I THINK we expect it to 
+reach a max at 933 and 966. Let's see if that's true.
 """
-
-
 
 
 logs = []
@@ -46,7 +47,7 @@ for profit_1 in range(100, 0, -1):
             profit_2_max_position = profit_2
 
 
-        logs.append(f"Price 1 = {900 + profit_1}, Profit 1: {profit_1}, Volume 1: {volume_1}, Price 2: {profit_2 + 900} Profit 2: {profit_2}, Volume 2: {volume_2}, Total Profit: {total_profit}")
+        logs.append(f"Price 1 = {1000 - profit_1}, Profit 1: {profit_1}, Volume 1: {volume_1}, Price 2: {1000 - profit_2} Profit 2: {profit_2}, Volume 2: {volume_2}, Total Profit: {total_profit}")
 
 
 with open("manual_trade_notes.log", "w") as file:

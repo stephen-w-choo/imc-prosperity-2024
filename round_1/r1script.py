@@ -15,8 +15,10 @@ POSITION_LIMITS = {
 	"PRODUCT2": 20
 }
 
-PRICE_AGGRESSION = 0 # determines how aggressively we hunt for values above and below the spread
-
+PRICE_AGGRESSION = { # determines how aggressively we hunt for values above and below the spread
+	"AMETHYSTS": 0,
+	"STARFRUIT": 0,
+}
 THRESHOLDS = {
 	"over": 0,
 	"mid": 10
@@ -52,15 +54,11 @@ class Trader:
 
 		# calculate the average of the last four prices
 
-		print(STARFRUIT_COEFFICIENTS)
-		print(self.previous_starfruit_prices)
-		print(sum([STARFRUIT_COEFFICIENTS[i] * self.previous_starfruit_prices[i] for i in range(4)]))
-
 		expected_price = STARFRUIT_COEFFICIENTS[0] + sum([STARFRUIT_COEFFICIENTS[i + 1] * self.previous_starfruit_prices[i] for i in range(4)])
 
 		return expected_price
 
-	def get_orders(self, state: TradingState, acceptable_price: int | float, product: str) -> List[Order]:
+	def get_orders(self, state: TradingState, acceptable_price: int | float, product: str, price_aggression: int) -> List[Order]:
 		# market taking + making based on Stanford's 2023 entry
 		product_order_depth = state.order_depths[product]
 		product_position_limit = POSITION_LIMITS[product]
@@ -78,28 +76,28 @@ class Trader:
 		# we start with buying - using our current position to determine how much and how aggressively we buy from the market
 
 		buying_pos = state.position.get(product, 0)
-		print(f"{product} current buying position: {buying_pos}")
+		logger.print(f"{product} current buying position: {buying_pos}")
 
 		for ask, vol in orders_sell:
 			# skip if there is no quota left
 			if product_position_limit - buying_pos <= 0:
 				break
 
-			if ask < acceptable_price - PRICE_AGGRESSION:
+			if ask < acceptable_price - price_aggression:
 				# we want to buy
 				buy_amount = min(-vol, product_position_limit - buying_pos)
 				buying_pos += buy_amount
 				assert(buy_amount > 0)
 				orders.append(Order(product, ask, buy_amount))
-				print(f"{product} buy order 1: {vol} at {ask}")
+				logger.print(f"{product} buy order 1: {vol} at {ask}")
 
 			# if overleveraged, buy up until we are no longer leveraged
-			if ask == acceptable_buy_price and buying_pos < 0:
+			if ask == acceptable_buy_price - price_aggression and buying_pos < 0:
 				buy_amount = min(-vol, -buying_pos)
 				buying_pos += buy_amount
 				assert(buy_amount > 0)
 				orders.append(Order(product, ask, buy_amount))
-				print(f"{product} buy order 2: {vol} at {ask}")
+				logger.print(f"{product} buy order 2: {vol} at {ask}")
 
 
 		# once we exhaust all profitable sell orders, we place additional buy orders
@@ -111,25 +109,25 @@ class Trader:
 				target_buy_price = min(acceptable_buy_price, lowest_buy_price + 1)
 				vol = -buying_pos + THRESHOLDS["over"]
 				orders.append(Order(product, target_buy_price, vol))
-				print(f"{product} buy order 3: {vol} at {target_buy_price}")
+				logger.print(f"{product} buy order 3: {vol} at {target_buy_price}")
 				buying_pos += vol
 			if THRESHOLDS["over"] <= buying_pos <= THRESHOLDS["mid"]:
 				target_buy_price = min(acceptable_buy_price - 1, lowest_buy_price + 1)
 				vol = -buying_pos + THRESHOLDS["mid"] # if we are close to neutral
 				orders.append(Order(product, target_buy_price, vol))
-				print(f"{product} buy order 4: {vol} at {target_buy_price}")
+				logger.print(f"{product} buy order 4: {vol} at {target_buy_price}")
 				buying_pos += vol
 			if buying_pos >= THRESHOLDS["mid"]:
-				target_buy_price = min(acceptable_buy_price - 3, lowest_buy_price + 1)
+				target_buy_price = min(acceptable_buy_price - 2, lowest_buy_price + 1)
 				vol = product_position_limit - buying_pos
 				orders.append(Order(product, target_buy_price, vol))
-				print(f"{product} buy order 5: {vol} at {target_buy_price}")
+				logger.print(f"{product} buy order 5: {vol} at {target_buy_price}")
 				buying_pos += vol
 				
 		# now we sell - we reset our position
 		selling_pos = state.position.get(product, 0)
 
-		print(f"{product} current selling position: {selling_pos}")
+		logger.print(f"{product} current selling position: {selling_pos}")
 
 		for bid, vol in orders_buy:
 			# positive orders in the list
@@ -140,20 +138,20 @@ class Trader:
 			if -product_position_limit - selling_pos >= 0:
 				break
 
-			if bid > acceptable_price + PRICE_AGGRESSION:
+			if bid > acceptable_price + price_aggression:
 				sell_amount = max(-vol, -product_position_limit - selling_pos)
 				selling_pos += sell_amount
 				assert(sell_amount < 0)
 				orders.append(Order(product, bid, sell_amount))
-				print("{product} sell order 1: ", sell_amount, bid)
+				logger.print("{product} sell order 1: ", sell_amount, bid)
 		
 			# if at parity, sell up until we are no longer leveraged
-			if bid == acceptable_sell_price and selling_pos > 0:
+			if bid == acceptable_sell_price + price_aggression and selling_pos > 0:
 				sell_amount = max(-vol, -selling_pos)
 				selling_pos += sell_amount
 				assert(sell_amount < 0)
 				orders.append(Order(product, bid, sell_amount))
-				print("{product} sell order 2: ", sell_amount, bid)
+				logger.print("{product} sell order 2: ", sell_amount, bid)
 
 		# start market making with remaining quota
 		# if selling_pos
@@ -163,19 +161,19 @@ class Trader:
 				vol = -selling_pos - THRESHOLDS["over"]
 				orders.append(Order(product, target_sell_price, vol))
 				selling_pos += vol
-				print(f"{product} sell order 3: selling {vol} at {target_sell_price}")
+				logger.print(f"{product} sell order 3: selling {vol} at {target_sell_price}")
 			if -THRESHOLDS["over"] >= selling_pos >= -THRESHOLDS["mid"]:
 				target_sell_price = max(acceptable_sell_price + 1, lowest_sell_price - 1)
 				vol = -selling_pos - THRESHOLDS["mid"]
 				orders.append(Order(product, target_sell_price, vol))
 				selling_pos += vol
-				print(f"{product} sell order 4: selling {vol} at {target_sell_price}")
+				logger.print(f"{product} sell order 4: selling {vol} at {target_sell_price}")
 			if -THRESHOLDS["mid"] >= selling_pos:
 				target_sell_price = max(acceptable_sell_price + 2, lowest_sell_price - 1)
 				vol = -product_position_limit - selling_pos
 				orders.append(Order(product, target_sell_price, vol))
 				selling_pos += vol
-				print(f"{product} sell order 5: selling {vol} at {target_sell_price}")
+				logger.print(f"{product} sell order 5: selling {vol} at {target_sell_price}")
 				
 		return orders
 	
@@ -201,14 +199,13 @@ class Trader:
 			if product_acceptable_price is None:
 				continue
 			else:
-				orders = self.get_orders(state, product_acceptable_price, product)
+				orders = self.get_orders(state, product_acceptable_price, product, PRICE_AGGRESSION[product])
 				result[product] = orders
 	
 		traderData = {
 			"previous_starfruit_prices": self.previous_starfruit_prices
 		} 
 
-		print(result)
 
 		serialisedTraderData = jsonpickle.encode(traderData)
 		if serialisedTraderData == None:
