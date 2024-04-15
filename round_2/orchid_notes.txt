@@ -1,0 +1,17 @@
+Sunlight < 7 hours a day
+Production decreases 4% for every 10 minutes below
+
+Humidity - 60 - 80%
+Every 5% change outside of this bounds will make production fall by 2%
+
+Sunlight and humidity are lagging indicators
+
+We are able to trade both on the open market and with the South Island
+- Likely arbitrage opportunies present with the South Island
+- Need to calculate shipping costs and well as import/export tariffs
+
+Attempted to incorporate linear regression model - failed
+
+Shipping costs, import/export tariffs
+
+Import storage? 0.1 seashell per orchid per timestamp - we don't want to hold orchids?
