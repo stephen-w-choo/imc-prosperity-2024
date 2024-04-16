@@ -30,8 +30,8 @@ THRESHOLDS = {
 		"mid": 10
 	},
 	"ORCHIDS": {
-		"over": -20,
-		"mid": 20
+		"over": 20,
+		"mid": 40
 	},
 }
 
@@ -39,41 +39,49 @@ STARFRUIT_COEFFICIENTS = [17.36384211, 0.34608026, 0.26269948, 0.19565408, 0.192
 
 class Trader:
 	previous_starfruit_prices = []
-	market_taking = []
+	market_taking: list[tuple[str, int, bool]] = []
+	next_market_taking: list[tuple[str, int]] = []
 
 	def arbitrage(self, state: TradingState, product: str) -> tuple[list[Order], int]:
-		# check the south island
 		south_state = state.observations.conversionObservations["ORCHIDS"]
-		# If you want to purchase 1 unit of ORCHID from the south, you will purchase 
-  		# at the askPrice, pay the TRANSPORT_FEES, IMPORT_TARIFF 
 		south_sell_price = south_state.askPrice + south_state.transportFees + south_state.importTariff
-		# If you want to sell 1 unit of ORCHID to the south, we sell at a given price, but we lose money
-		# on transport and export tariff - so we sell at the bid price - transport fees - export tariff
 		south_buy_price = south_state.bidPrice - south_state.transportFees - south_state.exportTariff
 
-		# Can we sell to the south at more than we can buy from the north?
 		acceptable_buy_price = math.floor(south_buy_price)
-
-		logger.print(f"South buy price: {south_state.bidPrice}, acceptable buy price: {acceptable_buy_price}")
-
-
-		# Can we buy from the south at less than we can sell to the north?
 		acceptable_sell_price = math.ceil(south_sell_price)
 
-		logger.print(f"South sell price: {south_state.askPrice}, acceptable sell price: {acceptable_sell_price}")
-
+		# Get the orders
 		orders = self.get_orders(state, acceptable_sell_price, acceptable_buy_price, product, PRICE_AGGRESSION[product])
 
+		# Get the conversions
 		conversions: int = 0
 
-		for market_taking_product, market_taking_amount in self.market_taking:
+		conversion_limit = state.position.get(product, 0)
+
+		for index, (market_taking_product, market_taking_amount, seen) in enumerate(self.market_taking):
+			if conversion_limit == 0:
+				break
 			if market_taking_product == product:
-				conversions -= market_taking_amount
+				if conversion_limit > 0 and market_taking_amount > 0:
+					conversions -= min(conversion_limit, market_taking_amount)
+					conversion_limit += conversions
+					self.market_taking[index] = (market_taking_product, market_taking_amount, True)
+				elif conversion_limit < 0 and market_taking_amount < 0:
+					conversions += min(-conversion_limit, -market_taking_amount)
+					conversion_limit += conversions
+					self.market_taking[index] = (market_taking_product, market_taking_amount, True)
 
 		return orders, conversions
+	
+	def update_conversions(self, previousStateData, state: TradingState):
+		if "market_taking" in previousStateData:
+			self.market_taking = previousStateData["market_taking"]
+		else:
+			self.market_taking = []
+
+		# remove all market taking that has been seen
+		self.market_taking = [(product, amount, seen) for product, amount, seen in self.market_taking if not seen]
 			
-
-
 	def update_starfruit_price_history(self, previousTradingState, tradingState: TradingState):
 		if "previous_starfruit_prices" in previousTradingState:
 			self.previous_starfruit_prices = previousTradingState["previous_starfruit_prices"]
@@ -90,7 +98,6 @@ class Trader:
 
 		if len(self.previous_starfruit_prices) > 4:
 			self.previous_starfruit_prices.pop(0)
-
 
 	def get_starfruit_price(self) -> float | None:
 		# if we don't have enough data, return None
@@ -132,7 +139,7 @@ class Trader:
 				buying_pos += buy_amount
 				assert(buy_amount > 0)
 				orders.append(Order(product, ask, buy_amount))
-				self.market_taking.append((product, buy_amount))
+				self.market_taking.append((product, buy_amount, False))
 				logger.print(f"{product} buy order 1: {vol} at {ask}")
 
 			# if overleveraged, buy up until we are no longer leveraged
@@ -141,7 +148,7 @@ class Trader:
 				buying_pos += buy_amount
 				assert(buy_amount > 0)
 				orders.append(Order(product, ask, buy_amount))
-				self.market_taking.append((product, buy_amount))
+				self.market_taking.append((product, buy_amount, False))
 				logger.print(f"{product} buy order 2: {vol} at {ask}")
 
 
@@ -188,7 +195,7 @@ class Trader:
 				selling_pos += sell_amount
 				assert(sell_amount < 0)
 				orders.append(Order(product, bid, sell_amount))
-				self.market_taking.append((product, sell_amount))
+				self.market_taking.append((product, sell_amount, False))
 				logger.print("{product} sell order 1: ", sell_amount, bid)
 		
 			# if at parity, sell up until we are no longer leveraged
@@ -197,7 +204,7 @@ class Trader:
 				selling_pos += sell_amount
 				assert(sell_amount < 0)
 				orders.append(Order(product, bid, sell_amount))
-				self.market_taking.append((product, sell_amount))
+				self.market_taking.append((product, sell_amount, False))
 				logger.print("{product} sell order 2: ", sell_amount, bid)
 
 		# start market making with remaining quota
@@ -231,13 +238,17 @@ class Trader:
 			return self.get_starfruit_price()
 		return None
 
-
-	def run(self, state: TradingState):
+	def refresh_runner_state(self, state: TradingState):
 		try:
 			previousStateData = jsonpickle.decode(state.traderData)
 		except:
 			previousStateData = {}
+
 		self.update_starfruit_price_history(previousStateData, state)
+		self.update_conversions(previousStateData, state)
+
+	def run(self, state: TradingState):
+		self.refresh_runner_state(state)
 
 		result = {}
 
@@ -260,7 +271,8 @@ class Trader:
 				result[product] = orders
 	
 		traderData = {
-			"previous_starfruit_prices": self.previous_starfruit_prices
+			"previous_starfruit_prices": self.previous_starfruit_prices,
+			"market_taking": self.market_taking
 		} 
 
 
@@ -278,8 +290,6 @@ class Trader:
 		logger.flush(state, result, conversions, serialisedTraderData)
 
 		return result, conversions, serialisedTraderData
-	
-
 
 class Logger:
     def __init__(self) -> None:
