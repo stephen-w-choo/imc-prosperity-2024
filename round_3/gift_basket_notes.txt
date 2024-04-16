@@ -1,0 +1,19 @@
+Possible strategies
+
+Arbitrage
+Not possible - we can't actually convert the gift basket to its components and vice versa
+
+Throw more linear regression at it:
+
+Opportunity 1 - trading gift baskets:
+Combine the price of 6 strawberries + 4 chocolate bars + 1 rose - the price should correlate
+The combined price seems to be a bit smoother than the actual price. We will use it as our linear regression market
+The gift basket price is more volatile - we will trade this one
+
+Opportunity 2 - trading Roses, Strawberries and Chocolate bars:
+Given that gift basket price is relatively consistent, we should expect a negative correlation.
+ie if chocolate bar price goes up, roses and strawberries should go down, and vice versa
+    Option 1 - Run a straight linear regression against each one
+    Option 2 - Rose correlator = GIFT_BASKET - 6 strawberries - 4 chocolate bars
+               Strawberry correlator = GIFT_BASKET - 4 chocolate bars - 1 rose
+               Chocolate correlator = GIFT_BASKET - 1 rose - 6 strawberries
