@@ -11,13 +11,19 @@ POSITION_LIMITS = {
 	"STARFRUIT": 20,
 	"ORCHIDS": 100,
 	"PRODUCT1": 10,
-	"PRODUCT2": 20
+	"PRODUCT2": 20,
+	"CHOCOLATE": 250,
+	"STRAWBERRIES": 350,
+	"ROSES": 60,
+	"GIFT_BASKET": 60
 }
 
 PRICE_AGGRESSION = { # determines how aggressively we hunt for values above and below the spread
 	"AMETHYSTS": 0,
-	"STARFRUIT": 0,
-	"ORCHIDS": 0
+	"STARFRUIT": 1,
+	"ORCHIDS": 2,
+	"GIFT_BASKET": 25,
+	"ROSES": 30,
 }
 
 THRESHOLDS = {
@@ -33,9 +39,26 @@ THRESHOLDS = {
 		"over": 20,
 		"mid": 40
 	},
+	"GIFT_BASKET": {
+		"over": 0,
+		"mid": 10
+	},
+	"ROSES": {
+		"over": 0,
+		"mid": 10
+	},
 }
 
-STARFRUIT_COEFFICIENTS = [17.36384211, 0.34608026, 0.26269948, 0.19565408, 0.19213413]
+STARFRUIT_COEFFICIENTS = [49.50428678, 0.36344485, 0.22363348, 0.1772445,0.09641365, 0.12946429]
+GIFT_BASKET_COEFFICIENTS = [289.5698892751825, 0.8626389049176026, 0.031684672550904125, 
+							0.008742473436567089, -0.01659117908903074, -0.010649786829042718, 
+							-0.03995403832399447, 0.05569695953385345, 0.10981863478227183]
+# for roses - goes 1 intercept, 5 chocolates, 5 strawberry coefficients, 5 gift basket
+ROSES_COEFFICIENTS = [6676.023412674642, -0.6089558593367816, -0.052054262119180406, 0.011739688287736971, 
+					  0.008602475083543615, 0.6826137408688111, -0.8974486405018114, -0.2723245494965232, 
+					  -0.030985780039239685, -0.17674612974408843, -0.3651901445828294, 0.14785332793575073, 
+					  0.00899070703038854, 0.0003905643176334017, 0.006529617716453329, 0.040845254460841716]
+STRAWBERRY_COEFFICIENTS = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 class Logger:
     def __init__(self) -> None:
@@ -144,6 +167,11 @@ logger = Logger()
 
 class Trader:
 	previous_starfruit_prices = []
+	previous_gift_basket_prices = []
+	previous_chocolate_prices = []
+	previous_strawberry_prices = []
+	previous_rose_prices = []
+	previous_premium_basket_prices = []
 	market_taking: list[tuple[str, int, bool]] = []
 	next_market_taking: list[tuple[str, int]] = []
 
@@ -198,6 +226,71 @@ class Trader:
 		if len(self.previous_starfruit_prices) > 4:
 			self.previous_starfruit_prices.pop(0)
 
+	def update_combined_gift_basket_price_history(self, previousTradingState, tradingState: TradingState):
+		self.previous_chocolate_prices = previousTradingState.previous_chocolate_prices
+		self.previous_rose_prices = previousTradingState.previous_rose_prices
+		self.previous_strawberry_prices = previousTradingState.previous_strawberry_prices
+		self.previous_gift_basket_prices = previousTradingState.previous_gift_basket_prices
+		self.previous_premium_basket_prices = previousTradingState.previous_premium_basket_prices
+
+		good_to_list = {
+			"CHOCOLATE": self.previous_chocolate_prices,
+			"STRAWBERRIES": self.previous_strawberry_prices,
+			"ROSES": self.previous_rose_prices,
+			"GIFT_BASKET": self.previous_premium_basket_prices
+		}
+
+		# get the current price and append it to the list
+		gift_basket = 0
+
+		for good in good_to_list:
+			lowest_sell_price = sorted(tradingState.order_depths[good].sell_orders.keys())[0]
+			highest_buy_price = sorted(tradingState.order_depths[good].buy_orders.keys(), reverse=True)[0]
+
+			current_mid_price = (lowest_sell_price + highest_buy_price) / 2
+
+			if good == "CHOCOLATE":
+				gift_basket += current_mid_price * 4
+			elif good == "STRAWBERRIES":
+				gift_basket += current_mid_price * 6
+			elif good == "ROSES":
+				gift_basket += current_mid_price
+		
+			good_to_list[good].append(current_mid_price)
+
+			if len(good_to_list[good]) > 5:
+				good_to_list[good].pop(0)
+		
+		self.previous_gift_basket_prices.append(gift_basket)
+
+		if len(self.previous_gift_basket_prices) > len(GIFT_BASKET_COEFFICIENTS) - 1:
+			self.previous_gift_basket_prices.pop(0)
+
+	def rose_price(self) -> float | None:
+		CHOCOLATE_COEFFICIENTS = 5
+		STRAWBERRY_COEFFICIENTS = 5
+		GIFT_BASKET_COEFFICIENTS = 5
+
+		if len(self.previous_chocolate_prices) < CHOCOLATE_COEFFICIENTS or len(self.previous_strawberry_prices) < STRAWBERRY_COEFFICIENTS:
+			return None
+		
+		component_list = ([1.0] + self.previous_chocolate_prices[:CHOCOLATE_COEFFICIENTS] 
+					+ self.previous_strawberry_prices[:STRAWBERRY_COEFFICIENTS]
+					+ self.previous_gift_basket_prices[:GIFT_BASKET_COEFFICIENTS])
+
+		expected_price = sum([ROSES_COEFFICIENTS[i] * component_list[i] for i in range(len(ROSES_COEFFICIENTS))])
+
+		return expected_price
+
+	def get_combined_gift_basket_price(self) -> float | None:
+		# if we don't have enough data, return None
+		if len(self.previous_gift_basket_prices) < len(GIFT_BASKET_COEFFICIENTS) - 1:
+			return None
+	
+		expected_price = GIFT_BASKET_COEFFICIENTS[0] + sum([GIFT_BASKET_COEFFICIENTS[i + 1] * self.previous_gift_basket_prices[i] for i in range(len(GIFT_BASKET_COEFFICIENTS) - 1)])
+
+		return expected_price
+
 	def get_starfruit_price(self) -> float | None:
 		# if we don't have enough data, return None
 		if len(self.previous_starfruit_prices) < 4:
@@ -225,7 +318,6 @@ class Trader:
 		# we start with buying - using our current position to determine how much and how aggressively we buy from the market
 
 		buying_pos = state.position.get(product, 0)
-		logger.print(f"{product} current buying position: {buying_pos}")
 
 		for ask, vol in orders_sell:
 			# skip if there is no quota left
@@ -239,7 +331,6 @@ class Trader:
 				assert(buy_amount > 0)
 				orders.append(Order(product, ask, buy_amount))
 				self.market_taking.append((product, buy_amount, False))
-				logger.print(f"{product} buy order 1: {vol} at {ask}")
 
 			# if overleveraged, buy up until we are no longer leveraged
 			if ask == acceptable_buy_price - price_aggression and buying_pos < 0:
@@ -248,8 +339,6 @@ class Trader:
 				assert(buy_amount > 0)
 				orders.append(Order(product, ask, buy_amount))
 				self.market_taking.append((product, buy_amount, False))
-				logger.print(f"{product} buy order 2: {vol} at {ask}")
-
 
 		# once we exhaust all profitable sell orders, we place additional buy orders
 		# at a price acceptable to us
@@ -257,28 +346,23 @@ class Trader:
 		
 		if product_position_limit - buying_pos > 0: # if we have capacity
 			if buying_pos < THRESHOLDS[product]["over"]: # if we are overleveraged to sell, buy at parity for price up to neutral position
-				target_buy_price = min(acceptable_buy_price, lowest_buy_price + 1)
+				target_buy_price = min(acceptable_buy_price - price_aggression, lowest_buy_price + 1)
 				vol = -buying_pos + THRESHOLDS[product]["over"]
 				orders.append(Order(product, target_buy_price, vol))
-				logger.print(f"{product} buy order 3: {vol} at {target_buy_price}")
 				buying_pos += vol
 			if THRESHOLDS[product]["over"] <= buying_pos <= THRESHOLDS[product]["mid"]:
-				target_buy_price = min(acceptable_buy_price - 1, lowest_buy_price + 1)
+				target_buy_price = min(acceptable_buy_price - 1 - price_aggression, lowest_buy_price + 1)
 				vol = -buying_pos + THRESHOLDS[product]["mid"] # if we are close to neutral
 				orders.append(Order(product, target_buy_price, vol))
-				logger.print(f"{product} buy order 4: {vol} at {target_buy_price}")
 				buying_pos += vol
 			if buying_pos >= THRESHOLDS[product]["mid"]:
-				target_buy_price = min(acceptable_buy_price - 2, lowest_buy_price + 1)
+				target_buy_price = min(acceptable_buy_price - 2 - price_aggression, lowest_buy_price + 1)
 				vol = product_position_limit - buying_pos
 				orders.append(Order(product, target_buy_price, vol))
-				logger.print(f"{product} buy order 5: {vol} at {target_buy_price}")
 				buying_pos += vol
 				
 		# now we sell - we reset our position
 		selling_pos = state.position.get(product, 0)
-
-		logger.print(f"{product} current selling position: {selling_pos}")
 
 		for bid, vol in orders_buy:
 			# positive orders in the list
@@ -295,7 +379,6 @@ class Trader:
 				assert(sell_amount < 0)
 				orders.append(Order(product, bid, sell_amount))
 				self.market_taking.append((product, sell_amount, False))
-				logger.print("{product} sell order 1: ", sell_amount, bid)
 		
 			# if at parity, sell up until we are no longer leveraged
 			if bid == acceptable_sell_price + price_aggression and selling_pos > 0:
@@ -304,29 +387,25 @@ class Trader:
 				assert(sell_amount < 0)
 				orders.append(Order(product, bid, sell_amount))
 				self.market_taking.append((product, sell_amount, False))
-				logger.print("{product} sell order 2: ", sell_amount, bid)
 
 		# start market making with remaining quota
 		# if selling_pos
 		if -product_position_limit - selling_pos < 0:
 			if selling_pos > -THRESHOLDS[product]["over"]:
-				target_sell_price = max(acceptable_sell_price, lowest_sell_price - 1)
+				target_sell_price = max(acceptable_sell_price + price_aggression, lowest_sell_price - 1)
 				vol = -selling_pos - THRESHOLDS[product]["over"]
 				orders.append(Order(product, target_sell_price, vol))
 				selling_pos += vol
-				logger.print(f"{product} sell order 3: selling {vol} at {target_sell_price}")
 			if -THRESHOLDS[product]["over"] >= selling_pos >= -THRESHOLDS[product]["mid"]:
-				target_sell_price = max(acceptable_sell_price + 1, lowest_sell_price - 1)
+				target_sell_price = max(acceptable_sell_price + 1 + price_aggression, lowest_sell_price - 1)
 				vol = -selling_pos - THRESHOLDS[product]["mid"]
 				orders.append(Order(product, target_sell_price, vol))
 				selling_pos += vol
-				logger.print(f"{product} sell order 4: selling {vol} at {target_sell_price}")
 			if -THRESHOLDS[product]["mid"] >= selling_pos:
-				target_sell_price = max(acceptable_sell_price + 2, lowest_sell_price - 1)
+				target_sell_price = max(acceptable_sell_price + 2 + price_aggression, lowest_sell_price - 1)
 				vol = -product_position_limit - selling_pos
 				orders.append(Order(product, target_sell_price, vol))
 				selling_pos += vol
-				logger.print(f"{product} sell order 5: selling {vol} at {target_sell_price}")
 				
 		return orders
 	
@@ -335,6 +414,10 @@ class Trader:
 			return 10000
 		if product == "STARFRUIT":
 			return self.get_starfruit_price()
+		if product == "GIFT_BASKET":
+			return self.get_combined_gift_basket_price()
+		if product == "ROSES":
+			return self.rose_price()
 		return None
 
 	def refresh_runner_state(self, state: TradingState):
@@ -342,6 +425,7 @@ class Trader:
 			previousStateData = jsonpickle.decode(state.traderData)
 			self.update_starfruit_price_history(previousStateData, state)
 			self.update_conversions(previousStateData, state)
+			self.update_combined_gift_basket_price_history(previousStateData, state)
 		except:
 			pass
 
@@ -354,7 +438,6 @@ class Trader:
 
 		for product in state.order_depths:
 			if product == "ORCHIDS":
-				logger.print("getting orchids")
 				orders, conversions = self.arbitrage(state, product)
 				result[product] = orders
 				continue
@@ -377,7 +460,7 @@ class Trader:
 		for order in result["ORCHIDS"]:
 			orchid_orders += order.quantity
 
-		logger.print(f"Orchid orders: {orchid_orders}, orchid conversions: {conversions}")
+		logger.print(result)
 
 		logger.flush(state, result, conversions, "")
 
