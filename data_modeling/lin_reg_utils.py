@@ -11,12 +11,19 @@ def add_delayed_columns(input_data: pd.DataFrame, column_name: str, num_delays: 
     
     return delayed_labels
 
-def determine_theta(X, y) -> np.ndarray:
-    theta = np.linalg.inv(X.T.dot(X)).dot(X.T).dot(y)
+def determine_theta(X, y, alpha = 0.0) -> np.ndarray:
+    """
+    Ridge regression using the normal equation.
+    """
+    n, m = X.shape
+    I = np.eye(m)
+    I[0, 0] = 0
+
+    theta = np.linalg.inv(X.T.dot(X) + alpha * I).dot(X.T).dot(y)
 
     return theta
 
-def add_intercept_column(input_data, features: list[str]) -> np.ndarray:
+def add_intercept_column(input_data) -> np.ndarray:
     return np.hstack([np.ones((input_data.shape[0], 1)), input_data])
 
 def combine_dataframes(input_data: pd.DataFrame, products_to_combine: list[str]) -> pd.DataFrame: 
@@ -34,12 +41,22 @@ def combine_dataframes(input_data: pd.DataFrame, products_to_combine: list[str])
 
     return merged_data
 
+def moving_average(data, window_size, column):
+    """
+    Turns the values of a specific column into a moving average.
+    """
+
+    data[f"{column}_moving_average"] = data[column].rolling(window=window_size, center=True).mean()
+    data[f"{column}_moving_average"].fillna(data[column], inplace=True)
+
+    return data
+
 def test_theta_on_data(theta, test_data, features):
     """
     Takes a theta and features, and returns the predicted label on the test data.
     """
     test_X = test_data[features].values
-    test_X = add_intercept_column(test_X, features)
+    test_X = add_intercept_column(test_X)
     test_data["predicted_mid_price"] = test_X.dot(theta)
 
     return test_data
