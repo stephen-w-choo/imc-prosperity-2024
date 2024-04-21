@@ -15,15 +15,19 @@ POSITION_LIMITS = {
 	"CHOCOLATE": 250,
 	"STRAWBERRIES": 350,
 	"ROSES": 60,
-	"GIFT_BASKET": 60
+	"GIFT_BASKET": 30,
+	"COCONUT": 300,
+	"COCONUT_COUPON": 600
 }
 
 PRICE_AGGRESSION = { # determines how aggressively we hunt for values above and below the spread
 	"AMETHYSTS": 0,
-	"STARFRUIT": 1,
+	"STARFRUIT": 0,
 	"ORCHIDS": 2,
-	"GIFT_BASKET": 25,
+	"GIFT_BASKET": 30,
 	"ROSES": 30,
+	"COCONUT": 30,
+	"COCONUT_COUPON": 30
 }
 
 THRESHOLDS = {
@@ -47,10 +51,19 @@ THRESHOLDS = {
 		"over": 0,
 		"mid": 10
 	},
+	"COCONUT": {
+		"over": 0,
+		"mid": 10
+	},
+	"COCONUT_COUPON": {
+		"over": 0,
+		"mid": 10
+	}
 }
 
-STARFRUIT_COEFFICIENTS = [49.50428678, 0.36344485, 0.22363348, 0.1772445,0.09641365, 0.12946429]
-GIFT_BASKET_PREMIUM = 380
+STARFRUIT_COEFFICIENTS = [108.58978030240314, 0.29584445482712773, 0.259183591772433, 0.2132367610881145, 0.2100929993504117]
+GIFT_BASKET_COEFFICIENTS = [-13673.546215617556, 0.6553198504769995, 0.03780108604274801, 0.06623209619669979, 0.44125000957927796]
+COUPON_COEFFICIENTS = [-5360.484564543847, 0.2039640893178425, 0.050859032432779505, 0.05239892104401023, 0.291641177781248]
 
 class Logger:
     def __init__(self) -> None:
@@ -164,6 +177,8 @@ class Trader:
 	previous_strawberry_prices = []
 	previous_rose_prices = []
 	previous_premium_basket_prices = []
+	previous_coconut_prices = []
+	previous_coconut_coupon_prices = []
 	market_taking: list[tuple[str, int, bool]] = []
 	next_market_taking: list[tuple[str, int]] = []
 
@@ -218,6 +233,27 @@ class Trader:
 		if len(self.previous_starfruit_prices) > 4:
 			self.previous_starfruit_prices.pop(0)
 
+	def update_coconut_price_history(self, previousTradingState, tradingState: TradingState):
+		self.previous_coconut_coupon_prices = previousTradingState.previous_coconut_coupon_prices
+		self.previous_coconut_prices = previousTradingState.previous_coconut_prices
+
+		for product in ["COCONUT", "COCONUT_COUPON"]:
+			# get the current price and append it to the list
+			lowest_sell_price = sorted(tradingState.order_depths[product].sell_orders.keys())[0]
+			highest_buy_price = sorted(tradingState.order_depths[product].buy_orders.keys(), reverse=True)[0]
+
+			current_mid_price = (lowest_sell_price + highest_buy_price) / 2
+
+			if product == "COCONUT":
+				self.previous_coconut_prices.append(current_mid_price)
+			elif product == "COCONUT_COUPON":
+				self.previous_coconut_coupon_prices.append(current_mid_price)
+
+			if len(self.previous_coconut_prices) > 4:
+				self.previous_coconut_prices.pop(0)
+			if len(self.previous_coconut_coupon_prices) > 4:
+				self.previous_coconut_coupon_prices.pop(0)
+
 	def update_combined_gift_basket_price_history(self, previousTradingState, tradingState: TradingState):
 		self.previous_chocolate_prices = previousTradingState.previous_chocolate_prices
 		self.previous_rose_prices = previousTradingState.previous_rose_prices
@@ -236,10 +272,7 @@ class Trader:
 		gift_basket = 0
 
 		for good in good_to_list:
-			lowest_sell_price = sorted(tradingState.order_depths[good].sell_orders.keys())[0]
-			highest_buy_price = sorted(tradingState.order_depths[good].buy_orders.keys(), reverse=True)[0]
-
-			current_mid_price = (lowest_sell_price + highest_buy_price) / 2
+			current_mid_price = self.get_mid_price(good, tradingState)
 
 			if good == "CHOCOLATE":
 				gift_basket += current_mid_price * 4
@@ -255,13 +288,25 @@ class Trader:
 		
 		self.previous_gift_basket_prices.append(gift_basket)
 
-		if len(self.previous_gift_basket_prices) > len(GIFT_BASKET_COEFFICIENTS) - 1:
+		if len(self.previous_gift_basket_prices) > 5:
 			self.previous_gift_basket_prices.pop(0)
 
-	def get_combined_gift_basket_price(self) -> float | None:
-		expected_price = (self.previous_chocolate_prices[0] * 4 + 
-                    self.previous_strawberry_prices[0] * 6 + 
-					self.previous_rose_prices[0] + GIFT_BASKET_PREMIUM)
+	def get_mid_price(self, product: str, state) -> float:
+		lowest_sell_price = sorted(state.order_depths[product].sell_orders.keys())[0]
+		highest_buy_price = sorted(state.order_depths[product].buy_orders.keys(), reverse=True)[0]
+
+		return (lowest_sell_price + highest_buy_price) / 2
+
+	def get_combined_gift_basket_price(self, state: TradingState) -> float | None:
+		# if we don't have enough data, return None
+		if len(self.previous_gift_basket_prices) < 4:
+			return None
+
+		expected_price = GIFT_BASKET_COEFFICIENTS[0] + sum(
+			[GIFT_BASKET_COEFFICIENTS[i + 1] * self.previous_gift_basket_prices[i] for i in range(4)]
+		)
+
+		logger.print(f"Expected gift_basket_price: {expected_price}")
 
 		return expected_price
 
@@ -271,10 +316,17 @@ class Trader:
 			return None
 
 		# calculate the average of the last four prices
-
 		expected_price = STARFRUIT_COEFFICIENTS[0] + sum([STARFRUIT_COEFFICIENTS[i + 1] * self.previous_starfruit_prices[i] for i in range(4)])
 
 		return expected_price
+	
+	def get_coconut_coupon_price(self) -> float | None:
+		# if we don't have enough data, return None
+		# if len(self.previous_coconut_prices) < 4:
+		# 	return None
+		# expected_price = COUPON_COEFFICIENTS[0] + sum([COUPON_COEFFICIENTS[i + 1] * self.previous_coconut_prices[i] for i in range(4)])
+
+		return 565
 
 	def get_orders(self, state: TradingState, acceptable_sell_price: int, acceptable_buy_price: int, product: str, price_aggression: int) -> List[Order]:
 		# market taking + making based on Stanford's 2023 entry
@@ -389,7 +441,9 @@ class Trader:
 		if product == "STARFRUIT":
 			return self.get_starfruit_price()
 		if product == "GIFT_BASKET":
-			return self.get_combined_gift_basket_price()
+			return self.get_combined_gift_basket_price(state)
+		if product == "COCONUT_COUPON":
+			return self.get_coconut_coupon_price()
 		return None
 
 	def refresh_runner_state(self, state: TradingState):
@@ -398,6 +452,7 @@ class Trader:
 			self.update_starfruit_price_history(previousStateData, state)
 			self.update_conversions(previousStateData, state)
 			self.update_combined_gift_basket_price_history(previousStateData, state)
+			self.update_coconut_price_history(previousStateData, state)
 		except:
 			pass
 
