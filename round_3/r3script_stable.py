@@ -15,19 +15,14 @@ POSITION_LIMITS = {
 	"CHOCOLATE": 250,
 	"STRAWBERRIES": 350,
 	"ROSES": 60,
-	"GIFT_BASKET": 30,
-	"COCONUT": 300,
-	"COCONUT_COUPON": 600
+	"GIFT_BASKET": 60
 }
 
 PRICE_AGGRESSION = { # determines how aggressively we hunt for values above and below the spread
 	"AMETHYSTS": 0,
 	"STARFRUIT": 0,
 	"ORCHIDS": 2,
-	"GIFT_BASKET": 30,
-	"ROSES": 30,
-	"COCONUT": 10,
-	"COCONUT_COUPON": 10
+	"GIFT_BASKET": 25
 }
 
 THRESHOLDS = {
@@ -46,24 +41,14 @@ THRESHOLDS = {
 	"GIFT_BASKET": {
 		"over": 0,
 		"mid": 10
-	},
-	"ROSES": {
-		"over": 0,
-		"mid": 10
-	},
-	"COCONUT": {
-		"over": 0,
-		"mid": 10
-	},
-	"COCONUT_COUPON": {
-		"over": 0,
-		"mid": 10
 	}
 }
 
-STARFRUIT_COEFFICIENTS = [108.58978030240314, 0.29584445482712773, 0.259183591772433, 0.2132367610881145, 0.2100929993504117]
-GIFT_BASKET_COEFFICIENTS = [-13673.546215617556, 0.6553198504769995, 0.03780108604274801, 0.06623209619669979, 0.44125000957927796]
-COUPON_COEFFICIENTS = [-5360.484564543847, 0.2039640893178425, 0.050859032432779505, 0.05239892104401023, 0.291641177781248]
+STARFRUIT_COEFFICIENTS = [49.50428678, 0.36344485, 0.22363348, 0.1772445,0.09641365, 0.12946429]
+GIFT_BASKET_COEFFICIENTS = [289.5698892751825, 0.8626389049176026, 0.031684672550904125, 
+							0.008742473436567089, -0.01659117908903074, -0.010649786829042718, 
+							-0.03995403832399447, 0.05569695953385345, 0.10981863478227183]
+
 
 class Logger:
     def __init__(self) -> None:
@@ -176,9 +161,6 @@ class Trader:
 	previous_chocolate_prices = []
 	previous_strawberry_prices = []
 	previous_rose_prices = []
-	previous_premium_basket_prices = []
-	previous_coconut_prices = []
-	previous_coconut_coupon_prices = []
 	market_taking: list[tuple[str, int, bool]] = []
 	next_market_taking: list[tuple[str, int]] = []
 
@@ -233,46 +215,26 @@ class Trader:
 		if len(self.previous_starfruit_prices) > 4:
 			self.previous_starfruit_prices.pop(0)
 
-	def update_coconut_price_history(self, previousTradingState, tradingState: TradingState):
-		self.previous_coconut_coupon_prices = previousTradingState.previous_coconut_coupon_prices
-		self.previous_coconut_prices = previousTradingState.previous_coconut_prices
-
-		for product in ["COCONUT", "COCONUT_COUPON"]:
-			# get the current price and append it to the list
-			lowest_sell_price = sorted(tradingState.order_depths[product].sell_orders.keys())[0]
-			highest_buy_price = sorted(tradingState.order_depths[product].buy_orders.keys(), reverse=True)[0]
-
-			current_mid_price = (lowest_sell_price + highest_buy_price) / 2
-
-			if product == "COCONUT":
-				self.previous_coconut_prices.append(current_mid_price)
-			elif product == "COCONUT_COUPON":
-				self.previous_coconut_coupon_prices.append(current_mid_price)
-
-			if len(self.previous_coconut_prices) > 100:
-				self.previous_coconut_prices.pop(0)
-			if len(self.previous_coconut_coupon_prices) > 100:
-				self.previous_coconut_coupon_prices.pop(0)
-
 	def update_combined_gift_basket_price_history(self, previousTradingState, tradingState: TradingState):
 		self.previous_chocolate_prices = previousTradingState.previous_chocolate_prices
 		self.previous_rose_prices = previousTradingState.previous_rose_prices
 		self.previous_strawberry_prices = previousTradingState.previous_strawberry_prices
 		self.previous_gift_basket_prices = previousTradingState.previous_gift_basket_prices
-		self.previous_premium_basket_prices = previousTradingState.previous_premium_basket_prices
 
 		good_to_list = {
 			"CHOCOLATE": self.previous_chocolate_prices,
 			"STRAWBERRIES": self.previous_strawberry_prices,
 			"ROSES": self.previous_rose_prices,
-			"GIFT_BASKET": self.previous_premium_basket_prices
 		}
 
 		# get the current price and append it to the list
 		gift_basket = 0
 
 		for good in good_to_list:
-			current_mid_price = self.get_mid_price(good, tradingState)
+			lowest_sell_price = sorted(tradingState.order_depths[good].sell_orders.keys())[0]
+			highest_buy_price = sorted(tradingState.order_depths[good].buy_orders.keys(), reverse=True)[0]
+
+			current_mid_price = (lowest_sell_price + highest_buy_price) / 2
 
 			if good == "CHOCOLATE":
 				gift_basket += current_mid_price * 4
@@ -283,30 +245,21 @@ class Trader:
 		
 			good_to_list[good].append(current_mid_price)
 
-			if len(good_to_list[good]) > 5:
+			if len(good_to_list[good]) > 4:
 				good_to_list[good].pop(0)
 		
 		self.previous_gift_basket_prices.append(gift_basket)
 
-		if len(self.previous_gift_basket_prices) > 5:
+		if len(self.previous_gift_basket_prices) > len(GIFT_BASKET_COEFFICIENTS) - 1:
 			self.previous_gift_basket_prices.pop(0)
 
-	def get_mid_price(self, product: str, state) -> float:
-		lowest_sell_price = sorted(state.order_depths[product].sell_orders.keys())[0]
-		highest_buy_price = sorted(state.order_depths[product].buy_orders.keys(), reverse=True)[0]
-
-		return (lowest_sell_price + highest_buy_price) / 2
-
-	def get_combined_gift_basket_price(self, state: TradingState) -> float | None:
+	def get_combined_gift_basket_price(self) -> float | None:
 		# if we don't have enough data, return None
-		if len(self.previous_gift_basket_prices) < 4:
+		logger.print(self.previous_gift_basket_prices)
+		if len(self.previous_gift_basket_prices) < len(GIFT_BASKET_COEFFICIENTS) - 1:
 			return None
-
-		expected_price = GIFT_BASKET_COEFFICIENTS[0] + sum(
-			[GIFT_BASKET_COEFFICIENTS[i + 1] * self.previous_gift_basket_prices[i] for i in range(4)]
-		)
-
-		logger.print(f"Expected gift_basket_price: {expected_price}")
+		# calculate the average of the last four prices
+		expected_price = GIFT_BASKET_COEFFICIENTS[0] + sum([GIFT_BASKET_COEFFICIENTS[i + 1] * self.previous_gift_basket_prices[i] for i in range(len(GIFT_BASKET_COEFFICIENTS) - 1)])
 
 		return expected_price
 
@@ -316,24 +269,10 @@ class Trader:
 			return None
 
 		# calculate the average of the last four prices
+
 		expected_price = STARFRUIT_COEFFICIENTS[0] + sum([STARFRUIT_COEFFICIENTS[i + 1] * self.previous_starfruit_prices[i] for i in range(4)])
 
 		return expected_price
-	
-	def get_coconut_coupon_price(self) -> float | None:
-		# if we don't have enough data, return None
-		# if len(self.previous_coconut_prices) < 4:
-		# 	return None
-		# expected_price = COUPON_COEFFICIENTS[0] + sum([COUPON_COEFFICIENTS[i + 1] * self.previous_coconut_prices[i] for i in range(4)])
-		# return average of self.previous_coconut_coupon_prices
-		if len(self.previous_coconut_coupon_prices) < 10:
-			return None
-
-		average = sum(self.previous_coconut_coupon_prices) / len(self.previous_coconut_coupon_prices)
-
-		return average
-
-		return 565
 
 	def get_orders(self, state: TradingState, acceptable_sell_price: int, acceptable_buy_price: int, product: str, price_aggression: int) -> List[Order]:
 		# market taking + making based on Stanford's 2023 entry
@@ -397,6 +336,8 @@ class Trader:
 		# now we sell - we reset our position
 		selling_pos = state.position.get(product, 0)
 
+		logger.print(f"{product} current selling position: {selling_pos}")
+
 		for bid, vol in orders_buy:
 			# positive orders in the list
 			# but we are sending negative sell orders, so we negate it
@@ -448,9 +389,8 @@ class Trader:
 		if product == "STARFRUIT":
 			return self.get_starfruit_price()
 		if product == "GIFT_BASKET":
-			return self.get_combined_gift_basket_price(state)
-		if product == "COCONUT_COUPON":
-			return self.get_coconut_coupon_price()
+			logger.print("Getting gift_basket price")
+			return self.get_combined_gift_basket_price()
 		return None
 
 	def refresh_runner_state(self, state: TradingState):
@@ -459,7 +399,6 @@ class Trader:
 			self.update_starfruit_price_history(previousStateData, state)
 			self.update_conversions(previousStateData, state)
 			self.update_combined_gift_basket_price_history(previousStateData, state)
-			self.update_coconut_price_history(previousStateData, state)
 		except:
 			pass
 

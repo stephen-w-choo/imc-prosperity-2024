@@ -27,12 +27,14 @@ with open(file_path) as csv_data:
     merged_data.rename(columns={'mid_price': 'mid_price_roses', 'mid_price_gift': 'mid_price_gift_basket'}, inplace=True)
 
     # Calculating the 'basket cost'
-    merged_data['basket cost'] = (merged_data['mid_price_choc'] * 1 +
+    merged_data['basket cost'] = (merged_data['mid_price_choc'] * 4 +
                                 merged_data['mid_price_straw'] * 6 +
-                                merged_data['mid_price_roses'] * 1)
+                                merged_data['mid_price_roses'] * 1 + 400)
 
     # Displaying the result
     print(merged_data[['timestamp', 'basket cost']])
+
+    merged_data['basket_premium'] = merged_data['mid_price_gift_basket'] - merged_data['basket cost']
 
     # Plotting
     plt.figure()
@@ -44,22 +46,11 @@ with open(file_path) as csv_data:
     plt.legend()
     plt.show()
 
-    
-
-    # # Split the data by product
-    # for product in df['product'].unique():
-    #     product_data = df[df['product'] == product]
-
-    #     # Plotting
-    #     plt.figure()
-    #     plt.plot(product_data['timestamp'], product_data['mid_price'], label='Mid Price')
-    #     plt.plot(product_data['timestamp'], product_data['ask_price_1'], label='Ask Price 1')
-    #     plt.plot(product_data['timestamp'], product_data['bid_price_1'], label='Bid Price 1')
-        
-    #     plt.title(f'Price Chart for {product}')
-    #     plt.xlabel('Time')
-    #     plt.ylabel('Price')
-    #     plt.legend()
-    #     plt.show()
-
-
+    # separate plot for basket premium
+    plt.figure()
+    plt.plot(merged_data['timestamp'], merged_data['basket_premium'], label='Basket Premium')
+    plt.title('Basket Premium Over Time')
+    plt.xlabel('Time')
+    plt.ylabel('Cost')
+    plt.legend()
+    plt.show()

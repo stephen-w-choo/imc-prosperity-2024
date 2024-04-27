@@ -249,9 +249,9 @@ class Trader:
 			elif product == "COCONUT_COUPON":
 				self.previous_coconut_coupon_prices.append(current_mid_price)
 
-			if len(self.previous_coconut_prices) > 100:
+			if len(self.previous_coconut_prices) > 5:
 				self.previous_coconut_prices.pop(0)
-			if len(self.previous_coconut_coupon_prices) > 100:
+			if len(self.previous_coconut_coupon_prices) > 5:
 				self.previous_coconut_coupon_prices.pop(0)
 
 	def update_combined_gift_basket_price_history(self, previousTradingState, tradingState: TradingState):
@@ -302,13 +302,7 @@ class Trader:
 		if len(self.previous_gift_basket_prices) < 4:
 			return None
 
-		expected_price = GIFT_BASKET_COEFFICIENTS[0] + sum(
-			[GIFT_BASKET_COEFFICIENTS[i + 1] * self.previous_gift_basket_prices[i] for i in range(4)]
-		)
-
-		logger.print(f"Expected gift_basket_price: {expected_price}")
-
-		return expected_price
+		return None
 
 	def get_starfruit_price(self) -> float | None:
 		# if we don't have enough data, return None
@@ -321,19 +315,7 @@ class Trader:
 		return expected_price
 	
 	def get_coconut_coupon_price(self) -> float | None:
-		# if we don't have enough data, return None
-		# if len(self.previous_coconut_prices) < 4:
-		# 	return None
-		# expected_price = COUPON_COEFFICIENTS[0] + sum([COUPON_COEFFICIENTS[i + 1] * self.previous_coconut_prices[i] for i in range(4)])
-		# return average of self.previous_coconut_coupon_prices
-		if len(self.previous_coconut_coupon_prices) < 10:
-			return None
-
-		average = sum(self.previous_coconut_coupon_prices) / len(self.previous_coconut_coupon_prices)
-
-		return average
-
-		return 565
+		return None
 
 	def get_orders(self, state: TradingState, acceptable_sell_price: int, acceptable_buy_price: int, product: str, price_aggression: int) -> List[Order]:
 		# market taking + making based on Stanford's 2023 entry
@@ -463,12 +445,73 @@ class Trader:
 		except:
 			pass
 
+	def follow_rhianna_roses(self, trades: List[Trade], state: TradingState):
+		# we want to follow Rhianna's trades
+		# if she buys, we buy
+		# if she sells, we sell
+		orders = []
+
+		for trade in trades:
+			logger.print(f"ROSES being bought by {trade.buyer} sold by {trade.seller}")
+
+			if trade.seller.lower() == "rhianna":
+				lowest_sell_price = sorted(state.order_depths["ROSES"].sell_orders.keys())[0]
+				sell_limit = -state.position.get("ROSES", 0) - POSITION_LIMITS["ROSES"]
+				orders.append(Order("ROSES", lowest_sell_price - 1, sell_limit))
+			if trade.buyer.lower() == "rhianna":
+				highest_buy_price = sorted(state.order_depths["ROSES"].buy_orders.keys(), reverse=True)[0]
+				buy_limit = -state.position.get("ROSES", 0) + POSITION_LIMITS["ROSES"]
+				orders.append(Order("ROSES", highest_buy_price + 1, buy_limit))
+		
+		return orders
+	
+	def follow_trader(self, trades: List[Trade], state: TradingState, trader: str, product: str, price_aggression: int):
+		# we want to follow a trader's trades
+		# if they buy, we buy
+		# if they sell, we sell
+		orders = []
+
+		for trade in trades:
+			logger.print(f"{product} being bought by {trade.buyer} sold by {trade.seller}")
+
+			if trade.seller.lower() == trader:
+				lowest_sell_price = sorted(state.order_depths[product].sell_orders.keys())[0]
+				sell_limit = -state.position.get(product, 0) - POSITION_LIMITS[product]
+				orders.append(Order(product, lowest_sell_price - 1 + price_aggression, sell_limit))
+			if trade.buyer.lower() == trader:
+				highest_buy_price = sorted(state.order_depths[product].buy_orders.keys(), reverse=True)[0]
+				buy_limit = -state.position.get(product, 0) + POSITION_LIMITS[product]
+				orders.append(Order(product, highest_buy_price + 1 - price_aggression, buy_limit))
+		
+		return orders
+	
+	def follow_other_traders(self, state: TradingState):
+		orders = []
+
+		market_trades = state.market_trades
+
+		for product in market_trades:
+			if product == "ROSES":
+				orders += self.follow_trader(market_trades[product], state, "rhianna", product, 0)
+			if product == "CHOCOLATE":
+				orders += self.follow_trader(market_trades[product], state, "vinnie", product, 2)
+
+		return orders
+
 	def run(self, state: TradingState):
 		self.refresh_runner_state(state)
 
 		result = {}
 
 		conversions = 0
+
+		# follow other traders
+		followed_orders = self.follow_other_traders(state)
+		for order in followed_orders:
+			if order.symbol not in result:
+				result[order.symbol] = []
+
+			result[order.symbol].append(order)
 
 		for product in state.order_depths:
 			if product == "ORCHIDS":
